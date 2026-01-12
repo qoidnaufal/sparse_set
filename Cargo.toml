@@ -1,0 +1,7 @@
+[package]
+name = "sparse_set"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+blob_array = { git = "https://github.com/qoidnaufal/blob_array.git" }
