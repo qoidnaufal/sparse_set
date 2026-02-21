@@ -54,4 +54,12 @@ mod util_test {
 
         assert_eq!(a, b);
     }
+
+    #[test]
+    fn iter() {
+        let a = [0; 8];
+        let b = a.iter().copied().collect::<SparseSet<_>>();
+
+        assert_eq!(b.values(), &a);
+    }
 }

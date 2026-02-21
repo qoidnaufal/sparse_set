@@ -137,7 +137,6 @@ impl<V> SparseSet<V> {
             .map(|data_index| unsafe {
                 &mut *self.data
                     .get_raw(data_index)
-                    .cast()
             })
     }
 
@@ -392,6 +391,21 @@ impl<V: Clone> Clone for SparseSet<V> {
             keys: RawBuffer::from_ptr(self.keys.ptr.as_ptr().cast_const(), self.len),
             data_indexes: self.data_indexes.clone(),
             len: self.len,
+        }
+    }
+}
+
+impl<V> FromIterator<V> for SparseSet<V> {
+    fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
+        let items = iter.into_iter().collect::<Box<[_]>>();
+        let len = items.len();
+        let keys = (0..len).into_iter().collect::<Box<[_]>>();
+
+        Self {
+            data: RawBuffer::from_ptr(items.as_ptr(), len),
+            keys: RawBuffer::from_ptr(keys.as_ptr(), len),
+            data_indexes: DataIndices::from_arr(&keys),
+            len,
         }
     }
 }
