@@ -3,13 +3,5 @@
 version = 4
 
 [[package]]
-name = "blob_array"
-version = "0.1.0"
-source = "git+https://github.com/qoidnaufal/blob_array.git#9560b9adbd14ffb606575283a2142e5b66510a87"
-
-[[package]]
 name = "sparse_set"
 version = "0.1.0"
-dependencies = [
- "blob_array",
-]
