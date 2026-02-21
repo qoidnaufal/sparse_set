@@ -86,7 +86,7 @@ impl<V> SparseSet<V> {
     /// ```
     pub fn from_vec(vec: Vec<V>) -> Self {
         let len = vec.len();
-        let keys = vec.iter().enumerate().map(|(i, _)| i).collect::<Vec<_>>();
+        let keys = (0..len).into_iter().collect::<Box<[_]>>();
         let data_indexes = DataIndices::from_arr(&keys);
 
         Self {
