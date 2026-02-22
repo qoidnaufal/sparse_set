@@ -281,10 +281,22 @@ impl<V> SparseSet<V> {
     }
 
     /// Remove the last element
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use sparse_set::{SparseSet, sparse};
+    /// 
+    /// let mut s = sparse![0, 1, 2, 3];
+    /// let last = s.pop();
+    /// assert_eq!(last, Some(3));
+    /// ```
     pub fn pop(&mut self) -> Option<V> {
         (!self.is_empty()).then(|| {
-            let last = unsafe { self.data.pop(self.len).read() };
-            self.len -= 1;
+            let last_idx = self.len - 1;
+            let last = unsafe { self.data.pop(last_idx).read() };
+            self.data_indexes.set_null(last_idx);
+            self.len = last_idx;
             last
         })
     }

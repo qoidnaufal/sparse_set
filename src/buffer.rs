@@ -134,16 +134,6 @@ impl<T> RawBuffer<T> {
         }
     }
 
-    pub(crate) fn swap(&mut self, a: usize, b: usize) {
-        if !Self::is_zst() {
-            unsafe {
-                let ptr_a = self.ptr.add(a).as_ptr();
-                let ptr_b = self.ptr.add(b).as_ptr();
-                std::ptr::swap_nonoverlapping(ptr_a, ptr_b, 1);
-            }
-        }
-    }
-
     pub(crate) fn pop(&mut self, last_index: usize) -> *mut T {
         if Self::is_zst() {
             let ptr = std::ptr::without_provenance_mut(self.ptr.as_ptr() as usize + last_index);
@@ -152,6 +142,16 @@ impl<T> RawBuffer<T> {
 
         unsafe {
             self.get_raw(last_index)
+        }
+    }
+
+    pub(crate) fn swap(&mut self, a: usize, b: usize) {
+        if !Self::is_zst() {
+            unsafe {
+                let ptr_a = self.ptr.add(a).as_ptr();
+                let ptr_b = self.ptr.add(b).as_ptr();
+                std::ptr::swap_nonoverlapping(ptr_a, ptr_b, 1);
+            }
         }
     }
 
