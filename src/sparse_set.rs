@@ -91,7 +91,6 @@ impl<V> SparseSet<V> {
         }
     }
 
-
     /// Create a new SparseSet from a slice.
     /// 
     /// # Example
@@ -193,9 +192,9 @@ impl<V> SparseSet<V> {
     ///
     /// # Time complexity
     ///
-    /// Takes amortized *O*(1) time. If the sparseset's length would exceed its
+    /// Takes amortized *O*(1) time. If the SparseSet's length would exceed its
     /// capacity after the push, *O*(*capacity*) time is taken to copy the
-    /// vector's elements to a larger allocation.
+    /// SparseSet's elements to a larger allocation.
     pub fn push(&mut self, value: V) -> usize {
         if self.data.check(self.len).is_err() {
             self.data.grow();
