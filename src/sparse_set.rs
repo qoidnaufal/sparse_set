@@ -6,7 +6,9 @@ use crate::indices::DataIndices;
 use crate::iterator::{Iter, IterMut};
 
 /// A container which holds the data contiguously, consistent indexing with integer (usize), and no element shifting on middle removal.
+/// 
 /// # Example
+/// 
 /// ```
 /// use sparse_set::SparseSet;
 ///
@@ -30,20 +32,10 @@ use crate::iterator::{Iter, IterMut};
 ///
 /// let indexed_4 = s[4];
 /// assert_eq!(indexed_4, "e");
-/// ```
-/// 
-/// # Helper macro
-/// A helper macro is also provided for convenient
 ///
-/// # Example
-/// 
-/// ```
-/// use sparse_set::{SparseSet, sparse};
-/// 
-/// let a = sparse![0, 1, 2, 3, 4];
-/// let b = SparseSet::from_vec(vec![0, 1, 2, 3, 4]);
-///
-/// assert_eq!(a, b);
+/// // new push will reuse previously removed index if available
+/// let new = s.push("f");
+/// assert_eq!(new, a);
 /// ```
 pub struct SparseSet<V> {
     data: RawBuffer<V>,
@@ -68,14 +60,16 @@ impl<V> SparseSet<V> {
         Self {
             data: RawBuffer::with_capacity(capacity),
             keys: RawBuffer::with_capacity(capacity),
-            data_indexes: DataIndices::default(),
+            data_indexes: DataIndices::with_capacity(capacity),
             len: 0,
         }
     }
 
     /// Move and transform an existing Vec\<V\> into a SparseSet.
+    /// 
     /// # Example
-    /// ```
+    /// 
+    /// ```ignore
     /// use sparse_set::SparseSet;
     ///
     /// let vec = vec![0, 1, 2, 3, 4];
@@ -87,60 +81,71 @@ impl<V> SparseSet<V> {
     pub fn from_vec(vec: Vec<V>) -> Self {
         let len = vec.len();
         let keys = (0..len).into_iter().collect::<Box<[_]>>();
-        let data_indexes = DataIndices::from_arr(&keys);
+        let data_indexes = DataIndices::from_slice(&keys);
 
         Self {
-            data: RawBuffer::from_ptr(vec.as_ptr(), len),
-            keys: RawBuffer::from_ptr(keys.as_ptr(), len),
+            data: RawBuffer::from_raw(vec.as_ptr(), len),
+            keys: RawBuffer::from_raw(keys.as_ptr(), len),
             data_indexes,
             len,
         }
     }
 
-    pub unsafe fn get_raw(&self, index: usize) -> Option<NonNull<V>> {
-        self.data_indexes
-            .get(index)
-            .and_then(|data_index| unsafe {
-                let ptr = self.data.get_raw(data_index);
-                NonNull::new(ptr)
-            })
-    }
 
-    pub unsafe fn get_unchecked(&self, index: usize) -> &V {
-        unsafe {
-            let data_index = self.data_indexes.get_unchecked(index);
-            &*self.data.get_raw(data_index)
+    /// Create a new SparseSet from a slice.
+    /// 
+    /// # Example
+    /// 
+    /// ```ignore
+    /// use sparse_set::SparseSet;
+    ///
+    /// let arr = [0, 1, 2, 3, 4];
+    ///
+    /// let s = SparseSet::from_arr(arr);
+    ///
+    /// assert_eq!(s.values(), arr);
+    /// ```
+    pub fn from_arr<const N: usize>(arr: [V; N]) -> Self {
+        let keys = (0..N).into_iter().collect::<Box<[_]>>();
+        let data_indexes = DataIndices::from_slice(&keys);
+
+        Self {
+            data: RawBuffer::from_raw(arr.as_ptr(), N),
+            keys: RawBuffer::from_raw(keys.as_ptr(), N),
+            data_indexes,
+            len: N,
         }
     }
 
-    /// Get a reference of stored value at an index.
-    pub fn get(&self, index: usize) -> Option<&V> {
-        self.data_indexes
-            .get(index)
-            .map(|data_index| unsafe {
-                &*self.data
-                    .get_raw(data_index)
-            })
-    }
+    /// Create a new SparseSet from a slice.
+    /// 
+    /// # Example
+    /// 
+    /// ```ignore
+    /// use sparse_set::SparseSet;
+    ///
+    /// let vec = vec![0, 1, 2, 3, 4];
+    /// 
+    /// let s = SparseSet::from_slice(&vec);
+    ///
+    /// assert_eq!(s.values(), [0, 1, 2, 3, 4]);
+    /// ```
+    pub fn from_slice(slice: &[V]) -> Self {
+        let len = slice.len();
+        let keys = (0..len).into_iter().collect::<Box<[_]>>();
+        let data_indexes = DataIndices::from_slice(&keys);
 
-    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut V {
-        unsafe {
-            let data_index = self.data_indexes.get_unchecked(index);
-            &mut *self.data.get_raw(data_index)
+        Self {
+            data: RawBuffer::from_raw(slice.as_ptr(), len),
+            keys: RawBuffer::from_raw(keys.as_ptr(), len),
+            data_indexes,
+            len,
         }
     }
 
-    /// Get a mutable reference of stored value at an index.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut V> {
-        self.data_indexes
-            .get(index)
-            .map(|data_index| unsafe {
-                &mut *self.data
-                    .get_raw(data_index)
-            })
-    }
-
-    /// This won't realloc if len is equal capacity. This is intended to be used with [`with_capacity`](Self::with_capacity).
+    /// This won't realloc if len is equal capacity, an error is returned instead.
+    /// This is intended to be used with [`with_capacity`](Self::with_capacity).
+    /// 
     /// # Example
     /// ```
     /// use sparse_set::SparseSet;
@@ -192,38 +197,44 @@ impl<V> SparseSet<V> {
     /// capacity after the push, *O*(*capacity*) time is taken to copy the
     /// vector's elements to a larger allocation.
     pub fn push(&mut self, value: V) -> usize {
-        self.grow_if_needed(self.len);
+        if self.data.check(self.len).is_err() {
+            self.data.grow();
+            self.keys.grow();
+        }
 
         unsafe { self.push_inner(value) }
     }
 
     unsafe fn push_inner(&mut self, value: V) -> usize {
-        if self.data_indexes.len() > self.len {
+        let index = if self.data_indexes.len() > self.len {
             unsafe {
                 let empty = *self.keys.get_raw(self.len);
                 self.data_indexes.set(empty, self.len);
                 self.data.push(value, self.len);
 
-                self.len += 1;
-                return empty;
+                empty
             }
-        }
+        } else {
+            self.data_indexes.push(self.len);
 
-        let data_index = self.len;
-        self.data_indexes.set(data_index, data_index);
+            unsafe {
+                self.data.push(value, self.len);
+                self.keys.push(self.len, self.len);
+            }
 
-        unsafe {
-            self.data.push(value, data_index);
-            self.keys.push(data_index, data_index);
-        }
+            self.len
+        };
 
         self.len += 1;
-        data_index
+        index
     }
 
-    /// Remove an element at a specified index. The contiguousness of the data is preserved.
-    /// The validity of the index is also preserved.
+    /// Remove an element at a specified index. The validity of the indexes to access other elements are preserved.
+    /// The contiguousness of the data is also preserved, but internally the order of the data is modified,
+    /// because the vacant spot of the removed element is filled by the last element.
+    /// 
     /// # Example
+    /// 
     /// ```
     /// use sparse_set::SparseSet;
     ///
@@ -238,13 +249,15 @@ impl<V> SparseSet<V> {
     /// let seventh = s.get(7);
     /// assert_eq!(seventh, Some(&7));
     ///
+    /// // the order of the elements is modified to accomodate contiguousness of the data
+    /// // and avoid the significant cost of shifting the elements after the removed element
     /// let removed = s.remove(4);
     /// assert_eq!(s.values(), [0, 1, 2, 3, 7, 5, 6]);
     ///
+    /// // although the order of the elements is modified, the index to access the element is still valid
     /// let seventh = s.get(7);
     /// assert_eq!(seventh, Some(&7));
     /// ```
-    ///
     /// # Time complexity
     ///
     /// Takes amortized *O*(1) time.
@@ -268,6 +281,7 @@ impl<V> SparseSet<V> {
         })
     }
 
+    /// Remove the last element
     pub fn pop(&mut self) -> Option<V> {
         (!self.is_empty()).then(|| {
             let last = unsafe { self.data.pop(self.len).read() };
@@ -276,6 +290,109 @@ impl<V> SparseSet<V> {
         })
     }
 
+    /// Get an Option of raw pointer of the contained value at the specified index.
+    /// 
+    /// # Safety
+    /// 
+    /// Handle the produced raw pointer with care!
+    pub unsafe fn get_raw(&self, index: usize) -> Option<NonNull<V>> {
+        self.data_indexes
+            .get(index)
+            .and_then(|data_index| unsafe {
+                let ptr = self.data.get_raw(data_index);
+                NonNull::new(ptr)
+            })
+    }
+
+    /// Get an immutable reference of the contained value at the specified index while skipping all the necessary check.
+    /// 
+    /// # Safety
+    /// 
+    /// THe caller must ensure the validity of the index.
+    pub unsafe fn get_unchecked(&self, index: usize) -> &V {
+        unsafe {
+            let data_index = self.data_indexes.get_unchecked(index);
+            &*self.data.get_raw(data_index)
+        }
+    }
+
+    /// Get an immutable reference of the contained value at the specified index.
+    pub fn get(&self, index: usize) -> Option<&V> {
+        self.data_indexes
+            .get(index)
+            .map(|data_index| unsafe {
+                &*self.data
+                    .get_raw(data_index)
+            })
+    }
+
+    /// Get a mutable reference of the contained value at the specified index while skipping all the necessary check.
+    /// 
+    /// # Safety
+    /// 
+    /// THe caller must ensure the validity of the index.
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut V {
+        unsafe {
+            let data_index = self.data_indexes.get_unchecked(index);
+            &mut *self.data.get_raw(data_index)
+        }
+    }
+
+    /// Get a mutable reference of the contained value at the specified index.
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut V> {
+        self.data_indexes
+            .get(index)
+            .map(|data_index| unsafe {
+                &mut *self.data
+                    .get_raw(data_index)
+            })
+    }
+
+    /// Get an immutable reference to the first element
+    pub fn first(&self) -> Option<&V> {
+        if self.len == 0 {
+            return None;
+        }
+
+        unsafe {
+            Some(self.data.ptr.as_ref())
+        }
+    }
+
+    /// Get a mutable reference to the first element
+    pub fn first_mut(&mut self) -> Option<&mut V> {
+        if self.len == 0 {
+            return None;
+        }
+
+        unsafe {
+            Some(self.data.ptr.as_mut())
+        }
+    }
+
+    /// Get an immutable reference to the last element
+    pub fn last(&self) -> Option<&V> {
+        if self.len == 0 {
+            return None;
+        }
+
+        unsafe {
+            Some(self.data.ptr.add(self.len - 1).as_ref())
+        }
+    }
+
+    /// Get a mutable reference to the last element
+    pub fn last_mut(&mut self) -> Option<&mut V> {
+        if self.len == 0 {
+            return None;
+        }
+
+        unsafe {
+            Some(self.data.ptr.add(self.len - 1).as_mut())
+        }
+    }
+
+    /// Get an immutable slice of the contained values
     pub fn values<'a>(&'a self) -> &'a [V] {
         unsafe {
             &*std::ptr::slice_from_raw_parts(
@@ -285,7 +402,8 @@ impl<V> SparseSet<V> {
         }
     }
 
-    fn keys<'a>(&'a self) -> &'a [usize] {
+    /// Get an immutable slice of the valid indexes
+    pub fn indexes<'a>(&'a self) -> &'a [usize] {
         unsafe {
             &*std::ptr::slice_from_raw_parts(
                 self.keys.ptr.as_ptr().cast_const(),
@@ -294,13 +412,7 @@ impl<V> SparseSet<V> {
         }
     }
 
-    fn grow_if_needed(&mut self, len: usize) {
-        if self.data.check(len).is_err() {
-            self.data.grow();
-            self.keys.grow();
-        }
-    }
-
+    /// Clear the values and invalidate the indexes
     pub fn clear(&mut self) {
         if self.len > 0 {
             self.data_indexes.clear();
@@ -310,10 +422,12 @@ impl<V> SparseSet<V> {
         }
     }
 
+    /// Return the current capacity of this SparseSet
     pub const fn capacity(&self) -> usize {
         self.keys.capacity
     }
 
+    /// Return the amount of elements currently stored in this SparseSet
     pub const fn len(&self) -> usize {
         self.len
     }
@@ -322,10 +436,40 @@ impl<V> SparseSet<V> {
         self.len == 0
     }
 
+    /// Return an immutable iterator over the contained values
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use sparse_set::{SparseSet, sparse};
+    ///
+    /// let s = sparse![1, 2, 3];
+    /// let mut iter = s.iter();
+    /// 
+    /// assert_eq!(iter.next(), Some(&1));
+    /// assert_eq!(iter.next(), Some(&2));
+    /// assert_eq!(iter.next(), Some(&3));
+    /// assert_eq!(iter.next(), None);
+    /// ```
     pub fn iter(&self) -> Iter<'_, V> {
         Iter::new(self.data.ptr.as_ptr(), self.len())
     }
 
+    /// Return a mutable iterator over the contained values
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use sparse_set::{SparseSet, sparse};
+    ///
+    /// let mut s = sparse![1, 2, 3];
+    /// let mut iter = s.iter_mut();
+    /// 
+    /// assert_eq!(iter.next(), Some(&mut 1));
+    /// assert_eq!(iter.next(), Some(&mut 2));
+    /// assert_eq!(iter.next(), Some(&mut 3));
+    /// assert_eq!(iter.next(), None);
+    /// ```
     pub fn iter_mut(&mut self) -> IterMut<'_, V> {
         IterMut::new(self.data.ptr.as_ptr(), self.len())
     }
@@ -351,7 +495,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_map()
-            .entries(self.keys().iter().zip(self.values()))
+            .entries(self.indexes().iter().zip(self.values()))
             .finish()
     }
 }
@@ -377,7 +521,7 @@ impl<V> std::ops::IndexMut<usize> for SparseSet<V> {
 impl<V: PartialEq> PartialEq for SparseSet<V> {
     fn eq(&self, other: &Self) -> bool {
         self.values() == other.values()
-            && self.keys() == other.keys()
+            && self.indexes() == other.indexes()
             && self.data_indexes == other.data_indexes
     }
 }
@@ -387,8 +531,8 @@ impl<V: Eq> Eq for SparseSet<V> {}
 impl<V: Clone> Clone for SparseSet<V> {
     fn clone(&self) -> Self {
         Self {
-            data: RawBuffer::from_ptr(self.data.ptr.as_ptr().cast_const(), self.len),
-            keys: RawBuffer::from_ptr(self.keys.ptr.as_ptr().cast_const(), self.len),
+            data: RawBuffer::from_raw(self.data.ptr.as_ptr().cast_const(), self.len),
+            keys: RawBuffer::from_raw(self.keys.ptr.as_ptr().cast_const(), self.len),
             data_indexes: self.data_indexes.clone(),
             len: self.len,
         }
@@ -402,9 +546,9 @@ impl<V> FromIterator<V> for SparseSet<V> {
         let keys = (0..len).into_iter().collect::<Box<[_]>>();
 
         Self {
-            data: RawBuffer::from_ptr(items.as_ptr(), len),
-            keys: RawBuffer::from_ptr(keys.as_ptr(), len),
-            data_indexes: DataIndices::from_arr(&keys),
+            data: RawBuffer::from_raw(items.as_ptr(), len),
+            keys: RawBuffer::from_raw(keys.as_ptr(), len),
+            data_indexes: DataIndices::from_slice(&keys),
             len,
         }
     }

@@ -31,34 +31,24 @@ impl std::fmt::Debug for Index {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DataIndices(Vec<Index>);
 
-impl Default for DataIndices {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DataIndices {
     pub(crate) const fn new() -> Self {
         Self(Vec::new())
     }
 
-    pub(crate) fn from_arr(arr: &[usize]) -> Self {
-        Self(arr.iter().map(|i| Index::new(*i)).collect::<Vec<_>>())
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self(Vec::with_capacity(capacity))
     }
 
-    pub(crate) unsafe fn get_unchecked(&self, index: usize) -> usize {
-        unsafe {
-            self.0.get_unchecked(index).get().unwrap()
-        }
+    pub(crate) fn from_slice(slice: &[usize]) -> Self {
+        Self(slice.iter().map(|i| Index::new(*i)).collect::<Vec<_>>())
     }
 
-    pub(crate) fn get(&self, index: usize) -> Option<usize> {
-        self.0.get(index)
-            .and_then(Index::get)
+    pub(crate) fn push(&mut self, index: usize) {
+        self.0.push(Index::new(index))
     }
 
     pub(crate) fn set(&mut self, index: usize, data_index: usize) {
-        self.resize_if_needed(index);
         unsafe {
             *self.0.get_unchecked_mut(index) = Index::new(data_index);
         }
@@ -70,12 +60,17 @@ impl DataIndices {
         }
     }
 
-    fn resize_if_needed(&mut self, index: usize) {
-        if index >= self.0.len() {
-            self.0.resize(index + 1, Index::null());
+    pub(crate) unsafe fn get_unchecked(&self, index: usize) -> usize {
+        unsafe {
+            self.0.get_unchecked(index).get().unwrap()
         }
     }
 
+    pub(crate) fn get(&self, index: usize) -> Option<usize> {
+        self.0.get(index).and_then(Index::get)
+    }
+
+    #[inline(always)]
     pub(crate) const fn len(&self) -> usize {
         self.0.len()
     }

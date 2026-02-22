@@ -34,7 +34,7 @@ A helper macro is also provided for convenient.
 use sparse_set::{SparseSet, sparse};
 
 let a = sparse![0, 1, 2, 3];
-let b = SparseSet::from_vec(vec![0, 1, 2, 3]);
+let b = SparseSet::from_arr([0, 1, 2, 3]);
 
 assert_eq!(a, b);
 ```
@@ -45,10 +45,16 @@ A built-in iterator is also available.
 use sparse_set::{SparseSet, sparse};
 
 let a = sparse![0, 1, 2, 3];
+
+// iterating over a SparseSet
 let b = a.iter().collect::<Vec<_>>();
 let vec = vec![0, 1, 2, 3];
 
 assert_eq!(b, vec);
+
+// collecting from an iterator
+let c = vec.iter().collect::<SparseSet<_>>();
+assert_eq!(c, a);
   
 ```
 

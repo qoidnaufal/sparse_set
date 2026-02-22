@@ -43,7 +43,7 @@ impl<T> RawBuffer<T> {
         this
     }
 
-    pub(crate) fn from_ptr(src: *const T, len: usize) -> Self {
+    pub(crate) fn from_raw(src: *const T, len: usize) -> Self {
         let this = Self::with_capacity(len);
         let dst = this.ptr.as_ptr();
         unsafe {
